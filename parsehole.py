@@ -2,7 +2,7 @@ import re
 from collections import deque
 
 TOKENS = []
-RULES = []
+TREES = []
 NAMES = {}
 LEVELS = set()
 
@@ -11,21 +11,21 @@ class Addable:
     def __add__(self, other):
         if not isinstance(other, Addable):
             return NotImplemented
-        if isinstance(self, RuleSequence):
-            return RuleSequence(self.parts + [other])
-        return RuleSequence([self, other])
+        if isinstance(self, Rule):
+            return Rule(self.parts + [other])
+        return Rule([self, other])
 
     def __or__(self, other):
         if not isinstance(other, Addable):
             return NotImplemented
-        if not isinstance(other, RuleSequence):
-            other = RuleSequence([other])
-        if isinstance(self, RuleOption):
-            return RuleOption(self.parts + [other])
-        return RuleOption([self, other])
+        if not isinstance(other, Rule):
+            other = Rule([other])
+        if isinstance(self, TreeOptionPlaceholder):
+            return TreeOptionPlaceholder(self.parts + [other])
+        return TreeOptionPlaceholder([self, other])
 
 
-class RuleSequence(Addable):
+class Rule(Addable):
     def __init__(self, parts):
         self.parts = parts
 
@@ -33,7 +33,7 @@ class RuleSequence(Addable):
         return "<[" + " + ".join(repr(part) for part in self.parts) + "]>"
 
 
-class RuleOption(Addable):
+class TreeOptionPlaceholder(Addable):
     def __init__(self, parts):
         self.parts = parts
 
@@ -45,6 +45,10 @@ class TokenMeta(type, Addable):
     def __repr__(self):
         return self.__name__  # TODO: getitem?
 
+    @property
+    def level(self):
+        return self.kwargs.get("level", 0)
+
 
 class Token(metaclass=TokenMeta):
     def __init__(self, string):
@@ -55,8 +59,7 @@ class Token(metaclass=TokenMeta):
         return self.string
 
     def __init_subclass__(cls, **kwargs):
-        for key, value in kwargs.items():
-            setattr(cls, key, value)
+        cls.kwargs = kwargs
         cls.regex = re.compile(cls.__doc__)
         TOKENS.append(cls)
         NAMES[cls.__name__] = cls
@@ -82,7 +85,7 @@ class Placeholder(Addable):
         return NAMES[self.name]
 
 
-class RuleMeta(type, Addable):
+class TreeMeta(type, Addable):
     def __prepare__(name, bases, **kwargs):
         prepared = object.__prepare__(name, bases)
         prepared[name] = Placeholder(name)  # some kind of placeholder
@@ -96,21 +99,22 @@ class RuleMeta(type, Addable):
         return self.__name__
 
 
-class Rule(metaclass=RuleMeta):
+class Tree(metaclass=TreeMeta):
     def __init__(self, parts):
         self.parts = parts
 
     def __init_subclass__(cls, **kwargs):
         cls.kwargs = kwargs
-        # normalization: every rule is a option of a sequence
-        if isinstance(cls.rule, Token):
-            cls.rule = RuleSequence([cls.rule])
-        if isinstance(cls.rule, RuleSequence):
-            cls.rule = RuleOption([cls.rule])
+        # normalization: every rules is a option of a sequence
+        if isinstance(cls.rules, Token):
+            cls.rules = Rule([cls.rules])
+        if isinstance(cls.rules, Rule):
+            cls.rules = TreeOptionPlaceholder([cls.rules])
+        cls.rules = cls.rules.parts
         LEVELS.add(cls.level)
-        RULES.append(cls)
+        TREES.append(cls)
         NAMES[cls.__name__] = cls
-        for option in cls.rule.parts:
+        for option in cls.rules:
             option.parts = [
                 part.replace() if isinstance(part, Placeholder) else part
                 for part in option.parts
@@ -119,18 +123,22 @@ class Rule(metaclass=RuleMeta):
     @classmethod
     def parse(cls, string):
         tokens = list(tokenize(string))
-        print("Tokens:", tokens)
-        return parse(tokens, start=cls)
+        tree = parse(tokens, start=cls)
+        if not isinstance(tree, cls):
+            raise ValueError(f"Parsed tree was {type(tree)}, not {cls.__name__}")
+        return tree
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({', '.join(repr(part) for part in self.parts)})"
+        return (
+            f"{self.__class__.__name__}({', '.join(repr(part) for part in self.parts)})"
+        )
 
 
 def tokenize(string):
     while string:
-        for token in TOKENS:
+        for token in sorted(TOKENS, key=lambda t: t.level):
             if match := token.regex.match(string):
-                if not getattr(token, "ignore", False):
+                if not token.kwargs.get("ignore", False):
                     yield token(match.string[: match.end()])
                 string = string[match.end() :]
                 break
@@ -142,13 +150,13 @@ class ParseError(Exception):
     pass
 
 
-def reduce(stack, rule_choice, rule):
-    rule_len = len(rule_choice.parts)
-    for item, rule_part in zip(stack[-rule_len:], rule_choice.parts):
+def reduce(stack, rule, tree):
+    rule_len = len(rule.parts)
+    for item, rule_part in zip(stack[-rule_len:], rule.parts):
         if not isinstance(item, rule_part):
             return False
     parts = [stack.pop() for _ in range(rule_len)]
-    stack.append(rule(parts))
+    stack.append(tree(parts))
     return True
 
 
@@ -183,24 +191,20 @@ def parse(sequence, start=None):
             changed = True
             while changed:
                 changed = False
-                print("main loop:", stack, agenda)
                 # reduce
-                for rule in RULES:
-                    if rule.level != level:
+                for tree in TREES:
+                    if tree.level != level:
                         continue
-                    for rule_choice in rule.rule.parts:
-                        if len(rule_choice.parts) > len(stack):
+                    for rule in tree.rules:
+                        if len(rule.parts) > len(stack):
                             continue
-                        if reduce(stack, rule_choice, rule):
+                        if reduce(stack, rule, tree):
                             level_master.reset()
-                            changed = True
-                if changed:
-                    break
+                            break
                 if agenda:
                     stack.append(agenda.popleft())
                     changed = True
         if len(stack) > 1 and not agenda:
             agenda.extend(stack.pop() for _ in range(len(stack)))
         level_master.reset()
-    print("after loop:", stack, agenda)
     return stack[0]

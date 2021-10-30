@@ -1,4 +1,5 @@
-from parsehole import Token, Rule
+from parsehole import Token, Tree
+
 
 class Number(Token):
     r"\d+"
@@ -7,8 +8,10 @@ class Number(Token):
     def value(self):
         return int(self.string)
 
-class Whitespace(Token, ignore=True, level=-1):
+
+class Whitespace(Token, ignore=True):
     r"\s+"
+
 
 class AddOperator(Token):
     r"[+-]"
@@ -19,6 +22,7 @@ class AddOperator(Token):
                 return val1 + val2
             case "-":
                 return val1 - val2
+
 
 class MulOperator(Token):
     r"[*/]"
@@ -31,9 +35,9 @@ class MulOperator(Token):
                 return val1 / val2
 
 
-class MulExpression(Rule, level=1):
-    rule = (
-        (MulExpression + MulOperator + MulExpression)
+class MulExpression(Tree, level=1):
+    rules = (
+        MulExpression + MulOperator + MulExpression
         | Number
     )
     def eval(self):
@@ -44,9 +48,9 @@ class MulExpression(Rule, level=1):
                 return val.eval()
 
 
-class AddExpression(Rule):
-    rule = (
-        (AddExpression + AddOperator + AddExpression)
+class AddExpression(Tree):
+    rules = (
+        AddExpression + AddOperator + AddExpression
         | MulExpression
     )
     def eval(self):
@@ -57,7 +61,5 @@ class AddExpression(Rule):
                 return val.eval()
 
 
-
-print(AddExpression.rule)
-expr = AddExpression.parse("2 * 3 + 4")
-assert expr.eval() == 10
+assert AddExpression.parse("2 * 3 + 4").eval() == 10
+assert AddExpression.parse("2 + 3 * 4").eval() == 14
