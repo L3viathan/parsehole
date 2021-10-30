@@ -38,7 +38,7 @@ class MulExpression(Rule, level=1):
     )
     def eval(self):
         match self.parts:
-            case (MulExpression() as e1, Operator() as op, MulExpression() as e2):
+            case (MulExpression() as e1, MulOperator() as op, MulExpression() as e2):
                 return op.eval(e1.eval(), e2.eval())
             case (_ as val,):
                 return val.eval()
@@ -51,7 +51,7 @@ class AddExpression(Rule):
     )
     def eval(self):
         match self.parts:
-            case (AddExpression() as e1, Operator() as op, AddExpression() as e2):
+            case (AddExpression() as e1, AddOperator() as op, AddExpression() as e2):
                 return op.eval(e1.eval(), e2.eval())
             case (_ as val,):
                 return val.eval()
@@ -60,4 +60,4 @@ class AddExpression(Rule):
 
 print(AddExpression.rule)
 expr = AddExpression.parse("2 * 3 + 4")
-print(expr.eval(), "should be 10")
+assert expr.eval() == 10

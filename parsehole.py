@@ -88,6 +88,10 @@ class RuleMeta(type, Addable):
         prepared[name] = Placeholder(name)  # some kind of placeholder
         return prepared
 
+    @property
+    def level(self):
+        return self.kwargs.get("level", 0)
+
     def __repr__(self):
         return self.__name__
 
@@ -97,14 +101,13 @@ class Rule(metaclass=RuleMeta):
         self.parts = parts
 
     def __init_subclass__(cls, **kwargs):
-        for key, value in kwargs.items():
-            setattr(cls, key, value)
+        cls.kwargs = kwargs
         # normalization: every rule is a option of a sequence
         if isinstance(cls.rule, Token):
             cls.rule = RuleSequence([cls.rule])
         if isinstance(cls.rule, RuleSequence):
             cls.rule = RuleOption([cls.rule])
-        LEVELS.add(getattr(cls, "level", 0))
+        LEVELS.add(cls.level)
         RULES.append(cls)
         NAMES[cls.__name__] = cls
         for option in cls.rule.parts:
@@ -149,20 +152,55 @@ def reduce(stack, rule_choice, rule):
     return True
 
 
+class LevelMaster:
+    def __init__(self, levels):
+        self.levels = sorted(levels, reverse=True)
+        self.index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            rval = self.levels[self.index]
+            self.index += 1
+            return rval
+        except IndexError:
+            raise StopIteration from None
+
+    def reset(self):
+        self.index = 0
+
+
 def parse(sequence, start=None):
     if len(sequence) == 1:
         return sequence[0]
     agenda = deque(sequence)
     stack = [agenda.popleft()]
+    level_master = LevelMaster(LEVELS)
     while len(stack) != 1 or agenda:
-        print("main loop:", stack, agenda)
-        # reduce
-        for rule in RULES:
-            for rule_choice in rule.rule.parts:
-                if len(rule_choice.parts) > len(stack):
-                    continue
-                reduce(stack, rule_choice, rule)
-        if agenda:
-            stack.append(agenda.popleft())
+        for level in level_master:
+            changed = True
+            while changed:
+                changed = False
+                print("main loop:", stack, agenda)
+                # reduce
+                for rule in RULES:
+                    if rule.level != level:
+                        continue
+                    for rule_choice in rule.rule.parts:
+                        if len(rule_choice.parts) > len(stack):
+                            continue
+                        if reduce(stack, rule_choice, rule):
+                            level_master.reset()
+                            changed = True
+                if changed:
+                    break
+                if agenda:
+                    stack.append(agenda.popleft())
+                    changed = True
+        if len(stack) > 1 and not agenda:
+            agenda.extend(stack.pop() for _ in range(len(stack)))
+        level_master.reset()
     print("after loop:", stack, agenda)
     return stack[0]
