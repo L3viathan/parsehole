@@ -20,9 +20,9 @@ class Addable:
             return NotImplemented
         if not isinstance(other, Rule):
             other = Rule([other])
-        if isinstance(self, RulesPlaceholder):
-            return RulesPlaceholder(self.parts + [other])
-        return RulesPlaceholder([self, other])
+        if isinstance(self, RuleList):
+            return RuleList(self.parts + [other])
+        return RuleList([self, other])
 
 
 class Rule(Addable):
@@ -39,7 +39,7 @@ class Rule(Addable):
         yield from iter(self.parts)
 
 
-class RulesPlaceholder(Addable):
+class RuleList(Addable):
     def __init__(self, parts):
         self.parts = parts
 
@@ -58,11 +58,7 @@ class TokenMeta(type, Addable):
 
 class Token(metaclass=TokenMeta):
     def __init__(self, string):
-        self.string = string
-
-    @property
-    def value(self):
-        return self.string
+        self.value = string
 
     def __init_subclass__(cls, **kwargs):
         cls.kwargs = kwargs

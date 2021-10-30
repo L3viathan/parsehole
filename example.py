@@ -4,9 +4,8 @@ from parsehole import Token, Tree
 class Number(Token):
     r"\d+"
 
-    @property
-    def value(self):
-        return int(self.string)
+    def eval(self):
+        return int(self.value)
 
 
 class Whitespace(Token, ignore=True):
