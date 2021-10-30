@@ -20,9 +20,9 @@ class Addable:
             return NotImplemented
         if not isinstance(other, Rule):
             other = Rule([other])
-        if isinstance(self, TreeOptionPlaceholder):
-            return TreeOptionPlaceholder(self.parts + [other])
-        return TreeOptionPlaceholder([self, other])
+        if isinstance(self, RulesPlaceholder):
+            return RulesPlaceholder(self.parts + [other])
+        return RulesPlaceholder([self, other])
 
 
 class Rule(Addable):
@@ -32,8 +32,14 @@ class Rule(Addable):
     def __repr__(self):
         return "<[" + " + ".join(repr(part) for part in self.parts) + "]>"
 
+    def __len__(self):
+        return len(self.parts)
 
-class TreeOptionPlaceholder(Addable):
+    def __iter__(self):
+        yield from iter(self.parts)
+
+
+class RulesPlaceholder(Addable):
     def __init__(self, parts):
         self.parts = parts
 
@@ -109,8 +115,9 @@ class Tree(metaclass=TreeMeta):
         if isinstance(cls.rules, Token):
             cls.rules = Rule([cls.rules])
         if isinstance(cls.rules, Rule):
-            cls.rules = TreeOptionPlaceholder([cls.rules])
-        cls.rules = cls.rules.parts
+            cls.rules = [cls.rules]
+        else:
+            cls.rules = cls.rules.parts
         LEVELS.add(cls.level)
         TREES.append(cls)
         NAMES[cls.__name__] = cls
@@ -151,8 +158,8 @@ class ParseError(Exception):
 
 
 def reduce(stack, rule, tree):
-    rule_len = len(rule.parts)
-    for item, rule_part in zip(stack[-rule_len:], rule.parts):
+    rule_len = len(rule)
+    for item, rule_part in zip(stack[-rule_len:], rule):
         if not isinstance(item, rule_part):
             return False
     parts = [stack.pop() for _ in range(rule_len)]
@@ -196,11 +203,12 @@ def parse(sequence, start=None):
                     if tree.level != level:
                         continue
                     for rule in tree.rules:
-                        if len(rule.parts) > len(stack):
+                        if len(rule) > len(stack):
                             continue
                         if reduce(stack, rule, tree):
                             level_master.reset()
                             break
+                # shift
                 if agenda:
                     stack.append(agenda.popleft())
                     changed = True

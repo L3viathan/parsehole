@@ -40,6 +40,7 @@ class MulExpression(Tree, level=1):
         MulExpression + MulOperator + MulExpression
         | Number
     )
+
     def eval(self):
         match self.parts:
             case (MulExpression() as e1, MulOperator() as op, MulExpression() as e2):
@@ -53,6 +54,7 @@ class AddExpression(Tree):
         AddExpression + AddOperator + AddExpression
         | MulExpression
     )
+
     def eval(self):
         match self.parts:
             case (AddExpression() as e1, AddOperator() as op, AddExpression() as e2):
