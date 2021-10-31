@@ -32,17 +32,15 @@ def value(self):
 
 # Trees
 
-Non-terminals are called trees. They have a `rules` attribute that contains all
-possible expansions of this tree type. Note that recursive definitions "just
-work" (in the sense that there are no NameErrors occurring despite the class
+Non-terminals are called trees. Rules are defined by just writing them at the
+beginning of the class definition. Note that recursive definitions "just work"
+(in the sense that there are no NameErrors occurring despite the class
 not being defined yet).
 
 ```python
 class AddExpression(Tree):
-    rules = (
-        AddExpression + AddOperator + AddExpression
-        | MulExpression
-    )
+    AddExpression + AddOperator + AddExpression
+    MulExpression
 ```
 
 # Parsing

@@ -35,10 +35,8 @@ class MulOperator(Token):
 
 
 class MulExpression(Tree, level=1):
-    rules = (
-        MulExpression + MulOperator + MulExpression
-        | Number
-    )
+    MulExpression + MulOperator + MulExpression
+    Number
 
     def eval(self):
         match self.parts:
@@ -49,10 +47,8 @@ class MulExpression(Tree, level=1):
 
 
 class AddExpression(Tree):
-    rules = (
-        AddExpression + AddOperator + AddExpression
-        | MulExpression
-    )
+    AddExpression + AddOperator + AddExpression
+    MulExpression
 
     def eval(self):
         match self.parts:

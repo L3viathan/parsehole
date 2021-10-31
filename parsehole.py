@@ -1,10 +1,24 @@
 import re
+import dis
+import builtins
+import hashlib
+from io import BytesIO
 from collections import deque
 
 TOKENS = []
 TREES = []
 NAMES = {}
 LEVELS = set()
+
+
+# bytecode instructions:
+BUILD_LIST = dis.opmap["BUILD_LIST"]
+STORE_NAME = dis.opmap["STORE_NAME"]
+LOAD_NAME = dis.opmap["LOAD_NAME"]
+LOAD_METHOD = dis.opmap["LOAD_METHOD"]
+CALL_METHOD = dis.opmap["CALL_METHOD"]
+POP_TOP = dis.opmap["POP_TOP"]
+MAKE_FUNCTION = dis.opmap["MAKE_FUNCTION"]
 
 
 class Addable:
@@ -14,15 +28,6 @@ class Addable:
         if isinstance(self, Rule):
             return Rule(self.parts + [other])
         return Rule([self, other])
-
-    def __or__(self, other):
-        if not isinstance(other, Addable):
-            return NotImplemented
-        if not isinstance(other, Rule):
-            other = Rule([other])
-        if isinstance(self, RuleList):
-            return RuleList(self.parts + [other])
-        return RuleList([self, other])
 
 
 class Rule(Addable):
@@ -37,14 +42,6 @@ class Rule(Addable):
 
     def __iter__(self):
         yield from iter(self.parts)
-
-
-class RuleList(Addable):
-    def __init__(self, parts):
-        self.parts = parts
-
-    def __repr__(self):
-        return "<{" + " | ".join(repr(part) for part in self.parts) + "}>"
 
 
 class TokenMeta(type, Addable):
@@ -112,15 +109,16 @@ class Tree(metaclass=TreeMeta):
             cls.rules = Rule([cls.rules])
         if isinstance(cls.rules, Rule):
             cls.rules = [cls.rules]
-        else:
-            cls.rules = cls.rules.parts
         LEVELS.add(cls.level)
         TREES.append(cls)
         NAMES[cls.__name__] = cls
-        for option in cls.rules:
-            option.parts = [
+        cls.rules = [
+            rule if isinstance(rule, Rule) else Rule([rule]) for rule in cls.rules
+        ]
+        for rule in cls.rules:
+            rule.parts = [
                 part.replace() if isinstance(part, Placeholder) else part
-                for part in option.parts
+                for part in rule.parts
             ]
 
     @classmethod
@@ -212,3 +210,56 @@ def parse(sequence, start=None):
             agenda.extend(stack.pop() for _ in range(len(stack)))
         level_master.reset()
     return stack[0]
+
+
+old_build_class = builtins.__build_class__
+
+
+def __build_class__(func, name, *bases, **kwargs):
+    if Tree in bases:
+        code = func.__code__
+        # append "append" and "rules" to co_names
+        co_names = tuple([*code.co_names, "append", "rules"])
+        i_append = len(co_names) - 2
+        i_rules = len(co_names) - 1
+        # set co_stacksize to at least 4
+        co_stacksize = min(code.co_stacksize, 4)
+        # go through the bytecode:
+        co_code = BytesIO()
+        # first four opcodes are writing __qualname__ etc.; don't touch
+        co_code.write(code.co_code[:8])
+        # in the beginning, add BUILD_LIST 0, STORE_NAME rules
+        co_code.write(bytes([BUILD_LIST, 0, STORE_NAME, i_rules]))
+        buffer = []
+        reached_makefunction = False
+        for i in range(len(code.co_code) // 2):
+            instruction, argument = code.co_code[i * 2 : i * 2 + 2]
+            if i in range(4):  # first four opcodes are doing class stuff, see above
+                continue
+            # find groups of things until a POP_TOP, before the first MAKE_FUNCTION:
+            if not reached_makefunction and instruction == POP_TOP:
+                # replace them with LOAD_NAME rules, LOAD_METHOD append, ...,
+                # CALL_METHOD 1, POP_TOP
+                co_code.write(bytes([LOAD_NAME, i_rules, LOAD_METHOD, i_append]))
+                co_code.write(bytes(buffer))
+                co_code.write(bytes([CALL_METHOD, 1, POP_TOP, 0]))
+                buffer = []
+                continue
+            buffer.extend([instruction, argument])
+            if instruction == MAKE_FUNCTION:
+                # we've reached the first method definition, no more
+                # modifications necessary
+                reached_makefunction = True
+
+        co_code.write(bytes(buffer))
+        co_code = co_code.getvalue()
+
+        func.__code__ = code.replace(
+            co_names=co_names,
+            co_stacksize=co_stacksize,
+            co_code=co_code,
+        )
+    return old_build_class(func, name, *bases, **kwargs)
+
+
+builtins.__build_class__ = __build_class__
