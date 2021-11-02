@@ -271,7 +271,7 @@ def __build_class__(func, name, *bases, **kwargs):
         i_append = len(co_names) - 2
         i_rules = len(co_names) - 1
         # set co_stacksize to at least 4
-        co_stacksize = min(code.co_stacksize, 4)
+        co_stacksize = max(code.co_stacksize, 4)
         # go through the bytecode:
         co_code = BytesIO()
         # first four opcodes are writing __qualname__ etc.; don't touch
